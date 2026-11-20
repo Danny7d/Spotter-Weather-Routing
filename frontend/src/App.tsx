@@ -75,7 +75,22 @@ export default function App() {
     setCorridorError(null)
 
     const spacing = Math.max(2, selectedRoute.distance_miles / 60)
-    const points = sampleRoutePoints(selectedRoute.geometry, spacing, 200).slice(0, 200)
+    // Include checkpoint coordinates in the same cached corridor request so the
+    // markers can use the selected hour without another request per slider move.
+    const checkpointPoints = selectedRoute.checkpoints.map((cp) => ({
+      latitude: cp.latitude,
+      longitude: cp.longitude,
+      cumulative_distance_miles: cp.cumulative_distance_miles,
+    }))
+    const sampledPoints = sampleRoutePoints(selectedRoute.geometry, spacing, 200)
+    const pointKey = (point: { latitude: number; longitude: number }) =>
+      `${point.latitude.toFixed(4)},${point.longitude.toFixed(4)}`
+    const unique = new Map<string, typeof checkpointPoints[number]>()
+    checkpointPoints.forEach((point) => unique.set(pointKey(point), point))
+    sampledPoints.forEach((point) => {
+      if (unique.size < 200 && !unique.has(pointKey(point))) unique.set(pointKey(point), point)
+    })
+    const points = [...unique.values()]
 
     fetchCorridorForecast(points, plan.departure_utc, plan.load_weight_lbs, FORECAST_HOURS)
       .then(({ points: results }) => {
@@ -186,6 +201,7 @@ export default function App() {
               loading={corridorLoading}
               error={corridorError}
               pointCount={corridorPoints?.length ?? 0}
+              forecastAvailable={Boolean(corridorPoints?.some((point) => point.hours.some((item) => item.offset_hours === overlayHour && item.risk_level !== 'unknown')))}
             />
           )}
         </section>

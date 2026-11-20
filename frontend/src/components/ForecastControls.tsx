@@ -1,5 +1,6 @@
 import { RISK_COLORS, RISK_LABELS } from '../risk'
 import type { RiskLevel } from '../types'
+import { selectedForecastTime } from '../forecastSelection.mjs'
 
 const LEGEND_LEVELS: RiskLevel[] = ['low', 'moderate', 'high', 'severe', 'no_travel', 'unknown']
 
@@ -11,6 +12,7 @@ interface ForecastControlsProps {
   loading: boolean
   error: string | null
   pointCount: number
+  forecastAvailable: boolean
 }
 
 export function ForecastControls({
@@ -21,9 +23,9 @@ export function ForecastControls({
   loading,
   error,
   pointCount,
+  forecastAvailable,
 }: ForecastControlsProps) {
-  const departure = new Date(departureUtc)
-  const selectedTime = new Date(departure.getTime() + hour * 3_600_000)
+  const selectedTime = selectedForecastTime(departureUtc, hour)
   const selectedTimeLabel = selectedTime
     .toUTCString()
     .replace(/^(\w+),\s(\d+)\s(\w+)\s(\d+)\s(\d+:\d+).*$/, '$1 $2 $3 · $5') + ' UTC'
@@ -74,6 +76,9 @@ export function ForecastControls({
       </div>
 
       {error && <p role="alert" className="mt-2 text-[12px] text-red-700">{error}</p>}
+      {!error && !forecastAvailable && !loading && (
+        <p role="status" className="mt-2 text-[12px] text-[var(--muted)]">Weather forecast unavailable for this time; markers and route segments are shown as unknown.</p>
+      )}
     </section>
   )
 }

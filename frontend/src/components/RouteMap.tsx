@@ -3,6 +3,7 @@ import mapboxgl from 'mapbox-gl'
 import type { CorridorPointResult, TripPlan } from '../types'
 import { RISK_COLORS, ROUTE_COLORS } from '../risk'
 import { worseRisk } from '../riskUtils'
+import { checkpointForecast, selectedForecastAt } from '../forecastSelection.mjs'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined
 
@@ -15,10 +16,12 @@ interface RouteMapProps {
   corridorLoading: boolean
 }
 
-function checkpointFeatures(plan: TripPlan) {
+function checkpointFeatures(plan: TripPlan, corridorPoints: CorridorPointResult[] | null, hour: number) {
   const features: GeoJSON.Feature[] = []
   plan.routes.forEach((route, routeIndex) => {
     route.checkpoints.forEach((cp) => {
+      const selectedForecast = checkpointForecast(cp, corridorPoints, hour)
+      const forecastKnown = Boolean(selectedForecast)
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [cp.longitude, cp.latitude] },
@@ -26,13 +29,14 @@ function checkpointFeatures(plan: TripPlan) {
           route_id: route.id,
           route_index: routeIndex,
           checkpoint_index: cp.index,
-          risk_level: cp.risk?.level ?? 'unknown',
+          risk_level: selectedForecast?.risk_level ?? 'unknown',
           cumulative_distance_miles: cp.cumulative_distance_miles,
           arrival_utc: cp.arrival_utc,
           is_origin: cp.is_origin,
           is_destination: cp.is_destination,
-          weather: cp.weather,
-          risk: cp.risk,
+          weather: forecastKnown ? selectedForecast : null,
+          forecast_utc: selectedForecast?.arrival_utc ?? null,
+          risk: selectedForecast ? { level: selectedForecast.risk_level } : null,
         },
       })
     })
@@ -60,8 +64,8 @@ function overlayFeatures(points: CorridorPointResult[], hour: number) {
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]
     const b = points[i + 1]
-    const riskA = a.hours[hour]?.risk_level ?? 'unknown'
-    const riskB = b.hours[hour]?.risk_level ?? 'unknown'
+    const riskA = selectedForecastAt(a, hour)?.risk_level ?? 'unknown'
+    const riskB = selectedForecastAt(b, hour)?.risk_level ?? 'unknown'
     const level = worseRisk(riskA, riskB)
     features.push({
       type: 'Feature',
@@ -189,6 +193,10 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
         // Format arrival time as "YYYY-MM-DD HH:MM UTC" without string surgery.
         const arrivalDate = new Date(String(props.arrival_utc))
         const arrivalLabel = arrivalDate.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+        const forecastDate = props.forecast_utc ? new Date(String(props.forecast_utc)) : null
+        const forecastLabel = forecastDate && !Number.isNaN(forecastDate.getTime())
+          ? forecastDate.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+          : null
 
         // Determine a human-readable label for the checkpoint position.
         const locationLabel = props.is_origin
@@ -224,7 +232,7 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
               ${distanceMi} mi along route &middot; ${riskLabel} risk
             </div>
             <div style="color:#34424c;font-size:13px;margin-bottom:5px;padding-left:14px">
-              ETA ${arrivalLabel}
+              ETA ${arrivalLabel}${forecastLabel ? `<br>Forecast ${forecastLabel}` : ''}
             </div>
             ${
               weather
@@ -265,17 +273,12 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
     }
   }, [])
 
-  // Update route + checkpoint sources when plan or selection changes.
+  // Update route geometry only when the plan or selected route changes.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !plan) return
     const apply = () => {
       ;(map.getSource('routes') as mapboxgl.GeoJSONSource)?.setData(routeFeatures(plan, selectedRouteId))
-      const cps = checkpointFeatures(plan)
-      cps.features.forEach((f) => {
-        f.properties = { ...f.properties, selected_route: f.properties?.route_id === selectedRouteId ? 1 : 0 }
-      })
-      ;(map.getSource('checkpoints') as mapboxgl.GeoJSONSource)?.setData(cps)
       const bounds = new mapboxgl.LngLatBounds()
       plan.routes.forEach((r) => {
         r.geometry.coordinates.forEach((c) => bounds.extend(c as [number, number]))
@@ -285,6 +288,19 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
   }, [plan, selectedRouteId])
+
+  // Checkpoint weather and risk follow the same selected forecast hour as the line overlay.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !plan) return
+    const cps = checkpointFeatures(plan, corridorPoints, overlayHour)
+    cps.features.forEach((feature) => {
+      feature.properties = { ...feature.properties, selected_route: feature.properties?.route_id === selectedRouteId ? 1 : 0 }
+    })
+    const apply = () => (map.getSource('checkpoints') as mapboxgl.GeoJSONSource)?.setData(cps)
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [plan, selectedRouteId, corridorPoints, overlayHour])
 
   // Update risk overlay when corridor data or hour changes.
   useEffect(() => {
