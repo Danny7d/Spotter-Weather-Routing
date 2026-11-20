@@ -45,7 +45,7 @@ function PlaceField({ label, value, onChange, placeholder }: PlaceFieldProps) {
 
   return (
     <div className="relative">
-      <label className="mb-1.5 block text-[13px] font-semibold text-[var(--ink)]">{label}</label>
+      <label className="mb-1.5 block text-[12px] font-medium text-[var(--ink)]">{label}</label>
       <input
         role="combobox"
         type="text"
@@ -104,7 +104,7 @@ function PlaceField({ label, value, onChange, placeholder }: PlaceFieldProps) {
 // Small section label used to visually group related fields.
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--subtle)]">{children}</p>
+    <p className="mb-2 text-[13px] font-semibold tracking-[-0.01em] text-[var(--ink)]">{children}</p>
   )
 }
 
@@ -175,7 +175,7 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
       {/* ROUTE section */}
       <div>
         <SectionLabel>Route</SectionLabel>
-        <div className="space-y-3.5">
+        <div className="space-y-3">
           <PlaceField
             label="Origin"
             value={origin}
@@ -195,22 +195,22 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
       <div>
         <SectionLabel>Schedule</SectionLabel>
         <div>
-          <label className="mb-1.5 block text-[13px] font-semibold text-[var(--ink)]">
+          <label className="mb-1.5 block text-[12px] font-medium text-[var(--ink)]">
             Departure date &amp; time
-            <span className="ml-1 font-normal text-[var(--muted)]">(origin local time)</span>
+            <span className="ml-1 font-normal text-[var(--muted)]">(origin time)</span>
           </label>
           {/*
             Departure compound field: date + hour + minute + AM/PM grouped visually
             inside a shared container so they read as one input, not four.
           */}
-          <div className="rounded-[10px] border border-[#dfe6e9] bg-[#f7f9fa] p-2">
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.9fr)]">
+          <div className="rounded-[8px] border border-[#dfe6e9] bg-[#f7f9fa] p-1.5">
+            <div className="grid grid-cols-3 gap-2">
               <input
                 aria-label="Departure date"
                 type="date"
                 value={departureDate}
                 onChange={(e) => setDepartureDate(e.target.value)}
-                className={`col-span-3 min-w-0 sm:col-span-1 ${inputClass}`}
+                className={`col-span-3 min-w-0 ${inputClass}`}
               />
               <input
                 aria-label="Departure hour"
@@ -247,7 +247,7 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
               </select>
             </div>
           </div>
-          <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted)]">Departure uses the origin city’s timezone.</p>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">Departure uses the origin city’s timezone.</p>
         </div>
       </div>
 
@@ -256,7 +256,7 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
         <SectionLabel>Load</SectionLabel>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-[13px] font-semibold text-[var(--ink)]">Weight (lb)</label>
+            <label className="mb-1.5 block text-[12px] font-medium text-[var(--ink)]">Weight (lb)</label>
             <input
               type="number"
               min={0}
@@ -268,7 +268,7 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-[13px] font-semibold text-[var(--ink)]">Checkpoint interval</label>
+            <label className="mb-1.5 block text-[12px] font-medium text-[var(--ink)]">Checkpoint interval</label>
             <select
               value={interval}
               onChange={(e) => setInterval(e.target.value)}

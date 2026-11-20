@@ -110,14 +110,24 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
         paint: { 'line-color': ['get', 'color'], 'line-width': 7, 'line-opacity': 0.85 },
       })
       map.addLayer({
+        id: 'route-line-casing',
+        type: 'line',
+        source: 'routes',
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': ['case', ['==', ['get', 'selected'], 1], 11, 6],
+          'line-opacity': 0.96,
+        },
+      })
+      map.addLayer({
         id: 'route-lines',
         type: 'line',
         source: 'routes',
         paint: {
           'line-color': ['get', 'color'],
           // Selected route is thicker and fully opaque; others are thin and faded.
-          'line-width': ['case', ['==', ['get', 'selected'], 1], 6, 2],
-          'line-opacity': ['case', ['==', ['get', 'selected'], 1], 0.95, 0.5],
+          'line-width': ['case', ['==', ['get', 'selected'], 1], 7, 3],
+          'line-opacity': ['case', ['==', ['get', 'selected'], 1], 1, 0.72],
         },
       })
       map.addLayer({
@@ -315,21 +325,14 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-[10px] bg-[#e8edf0]">
+    <div className="relative h-full w-full overflow-hidden rounded-[9px] border border-[#d3dddf] bg-[#e8edef]">
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Empty-state overlay — shown before the first route plan is loaded */}
       {!plan && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/65 backdrop-blur-[1px]">
-          <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#dce6e5] bg-white text-[var(--brand)] shadow-sm" aria-hidden="true">
-            <svg viewBox="0 0 32 32" className="h-7 w-7" fill="none">
-              <path d="M6 22.5 13 9.5l7 13M9.5 17h10" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="24" cy="9" r="4" fill="#bde7dc" />
-              <path d="M24 7v4M22 9h4" stroke="#176b68" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
-          </span>
-          <p className="mt-1 text-[14px] font-semibold text-[var(--ink)]">Your route intelligence, at a glance</p>
-          <p className="max-w-[270px] text-center text-[13px] text-[var(--muted)]">Plan a trip to see route options, checkpoints, and forecast risk on the map.</p>
+        <div className="pointer-events-none absolute left-4 top-4 max-w-[285px] border-l-2 border-[var(--brand)] bg-white/95 px-3 py-2.5 sm:left-5 sm:top-5">
+          <p className="text-[12px] font-semibold text-[var(--ink)]">Route intelligence</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted)]">Plan a trip to view route options, checkpoints, and forecast risk.</p>
         </div>
       )}
 
