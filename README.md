@@ -20,9 +20,11 @@ route weather-risk overlay on an interactive map.
 
 ```bash
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # then fill in MAPBOX_ACCESS_TOKEN
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+# Add MAPBOX_ACCESS_TOKEN to backend/.env
 python manage.py runserver
 ```
 
@@ -34,10 +36,14 @@ the rest of the app (and all tests) still works.
 
 ```bash
 cd frontend
-npm install
-cp .env.example .env   # add VITE_MAPBOX_TOKEN (public pk.* token for map tiles)
-npm run dev             # http://localhost:5173, proxies /api -> :8000
+npm ci
+cp .env.example .env
+# Add VITE_MAPBOX_TOKEN to frontend/.env
+npm run dev
 ```
+
+Vite serves the frontend at `http://localhost:5173` and proxies `/api` to
+`http://localhost:8000`.
 
 `VITE_MAPBOX_TOKEN` is a **public** Mapbox token used only to render map
 tiles in the browser — restrict it by URL in the Mapbox dashboard. The
@@ -73,11 +79,20 @@ ETAs are computed in UTC. The response echoes `origin_timezone` and
 
 ### Checkpoint classification
 
-Each checkpoint's weather (wind mph, rain in/hr, snow in/hr) is classified
-against fixed thresholds; boundary values belong to the higher-risk
-category. Rain intensity combines Open-Meteo `rain` + `showers`; snow uses
-`snowfall`. The checkpoint level is the worst of wind/rain/snow, then load
-rules are applied (they can only raise severity):
+Each checkpoint's weather is classified against these thresholds. Lower
+bounds belong to the category shown, so boundary values move into the higher
+risk category. The highest category's upper bound is inclusive where shown.
+Rain intensity combines Open-Meteo `rain` and `showers`; snow uses
+`snowfall`.
+
+| Weather measure | Low | Moderate | High | Severe | No Travel |
+|---|---:|---:|---:|---:|---:|
+| Wind (mph) | < 25 | 25–<35 | 35–<45 | 45–<55 | ≥ 55 |
+| Rain (in/hr) | < 0.10 | 0.10–<0.25 | 0.25–<0.50 | 0.50–1.00 | > 1.00 |
+| Snow (in/hr) | < 0.5 | 0.5–<1.0 | 1.0–<2.0 | 2.0–3.0 | > 3.0 |
+
+The checkpoint level is the highest risk among wind, rain, and snow. Load
+rules can raise severity further:
 
 - wind ≥ 55 mph → **No Travel** for every load
 - wind 45–54 mph and load > 30,000 lb → **No Travel**
@@ -119,30 +134,46 @@ segments are colored by the worse risk of their two endpoints — the same
 methodology as route metrics. It is derived from model forecast data, not a
 continuous observed weather raster, and the UI labels it accordingly.
 
-## Tests
+## Tests and production build
 
 ```bash
-cd backend && .venv/bin/pytest
+cd backend
+.venv/bin/pytest
 ```
 
-87 tests covering every threshold boundary, all load rules, unit
-conversions, checkpoint generation at 10/25/50 mi intervals, ETA math,
-segment-mile metrics, unknown-weather handling, ranking priorities,
-tie-breaking, No Travel handling, and API error paths.
+The backend suite currently passes **102 tests**. It covers risk thresholds,
+load rules, unit conversions, checkpoint generation and ETAs, route metrics
+and ranking, missing weather, and API validation and error paths.
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+```
+
+The frontend suite currently passes **10 tests** across two test files. The
+production build runs TypeScript checking and Vite bundling.
 
 ## Deployment
 
 ### Backend (Render)
 
-Deploy as a Web Service using `render.yaml` or through the Render Dashboard:
+Deploy as a Web Service using `render.yaml` or through the Render Dashboard.
+The blueprint sets the root directory to `backend`, installs
+`backend/requirements.txt`, and starts Gunicorn with the command below:
 
-- **Runtime**: Python 3.12+
+- **Runtime**: Python (Render-managed)
 - **Root Directory**: `backend`
 - **Build Command**: `pip install -r requirements.txt`
 - **Start Command**: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
 
-**Required Environment Variables**:
-At startup in production (`DJANGO_DEBUG=false`), the backend validates that all required environment variables are configured and aborts startup with an `ImproperlyConfigured` error if any are missing:
+**Environment Variables**:
+The backend refuses to start in production (`DJANGO_DEBUG=false`) if
+`DJANGO_SECRET_KEY`, `MAPBOX_ACCESS_TOKEN`, or `DJANGO_ALLOWED_HOSTS` is
+missing. Set `CORS_ALLOWED_ORIGINS` to the deployed frontend origin so browser
+requests are allowed. `EXTERNAL_API_TIMEOUT_SECONDS` is optional.
+
 - `DJANGO_SECRET_KEY`: A cryptographically secure secret key (do not use the default dev key).
 - `DJANGO_DEBUG`: Must be set to `false`.
 - `DJANGO_ALLOWED_HOSTS`: Comma-separated allowed hostnames (e.g. `your-service.onrender.com`).
@@ -152,7 +183,8 @@ At startup in production (`DJANGO_DEBUG=false`), the backend validates that all 
 
 ### Frontend (Vercel)
 
-Deploy as a Vite / React project on Vercel:
+Deploy the `frontend` directory as a Vite / React project on Vercel. No
+`vercel.json` is present; set the project options as follows:
 
 - **Framework Preset**: Vite
 - **Root Directory**: `frontend`
@@ -163,12 +195,10 @@ Deploy as a Vite / React project on Vercel:
 - `VITE_MAPBOX_TOKEN`: Public Mapbox token (`pk.*`) used for browser map tiles. Can be restricted to your domain in the Mapbox console.
 - `VITE_API_BASE_URL`: Full base URL of your deployed Render backend (e.g. `https://your-service.onrender.com`). If empty or omitted during development, Vite proxies `/api` to `http://localhost:8000`.
 
-### Mapbox Bundle Size & Lazy-Loading Investigation
+### Map loading
 
-Mapbox GL JS is a large library (~1.9 MB minified, ~530 kB gzipped). In this application:
-- `RouteMap` is isolated into an asynchronous chunk via `React.lazy()` and dynamic `import('./components/RouteMap')`.
-- This ensures the main application bundle (`index.js`) remains lean (~236 kB uncompressed / 74 kB gzipped).
-- The map component chunk is downloaded in parallel when `<RouteMap>` mounts inside `<Suspense>`, rendering a fallback placeholder until ready.
+The route map is loaded asynchronously with `React.lazy()` and a dynamic
+import. A placeholder is shown while the map component loads.
 
 
 ## Known limitations
