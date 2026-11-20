@@ -1,6 +1,6 @@
 import { RISK_COLORS, RISK_LABELS } from '../risk'
 import type { RiskLevel } from '../types'
-import { selectedForecastTime } from '../forecastSelection.mjs'
+import { forecastHourFromInput, selectedForecastLabel } from '../forecastSelection.mjs'
 
 const LEGEND_LEVELS: RiskLevel[] = ['low', 'moderate', 'high', 'severe', 'no_travel', 'unknown']
 
@@ -25,10 +25,7 @@ export function ForecastControls({
   pointCount,
   forecastAvailable,
 }: ForecastControlsProps) {
-  const selectedTime = selectedForecastTime(departureUtc, hour)
-  const selectedTimeLabel = selectedTime
-    .toUTCString()
-    .replace(/^(\w+),\s(\d+)\s(\w+)\s(\d+)\s(\d+:\d+).*$/, '$1 $2 $3 · $5') + ' UTC'
+  const selectedTimeLabel = selectedForecastLabel(departureUtc, hour)
 
   return (
     <section className="forecast-panel" aria-label="Route forecast controls">
@@ -65,7 +62,7 @@ export function ForecastControls({
           value={hour}
           aria-label="Forecast hour offset"
           aria-valuetext={`${hour} hours after departure`}
-          onChange={(e) => onHourChange(Number(e.target.value))}
+          onChange={(e) => onHourChange(forecastHourFromInput(e))}
           className="forecast-range h-2 w-full cursor-pointer appearance-none rounded-full bg-[#dce5e5]"
         />
         <div className="mt-1.5 flex justify-between text-[10px] font-medium tabular-nums text-[var(--subtle)]">

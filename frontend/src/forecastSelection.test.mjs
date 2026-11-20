@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { checkpointForecast, selectedForecastAt, selectedForecastTime } from './forecastSelection.mjs'
+import { checkpointForecast, forecastHourFromInput, selectedForecastAt, selectedForecastLabel, selectedForecastTime } from './forecastSelection.mjs'
 
 const departure = '2026-11-20T12:00:00Z'
 const point = {
@@ -18,6 +18,23 @@ test('selected forecast time advances from departure by the chosen offset', () =
   assert.equal(selectedForecastTime(departure, 0).toISOString(), '2026-11-20T12:00:00.000Z')
   assert.equal(selectedForecastTime(departure, 24).toISOString(), '2026-11-21T12:00:00.000Z')
   assert.equal(selectedForecastTime(departure, 48).toISOString(), '2026-11-22T12:00:00.000Z')
+})
+
+test('range input change updates the controlled hour and displayed timestamp', () => {
+  let hour = 0
+  const setHour = (nextHour) => { hour = nextHour }
+  const onChange = (event) => setHour(forecastHourFromInput(event))
+  const displayedTimestamp = () => selectedForecastLabel(departure, hour)
+
+  assert.match(displayedTimestamp(), /Fri 20 Nov · 12:00 UTC/)
+  onChange({ currentTarget: { value: '24' } })
+  assert.equal(hour, 24)
+  assert.match(displayedTimestamp(), /Sat 21 Nov · 12:00 UTC/)
+  onChange({ currentTarget: { value: '48' } })
+  assert.equal(hour, 48)
+  assert.match(displayedTimestamp(), /Sun 22 Nov · 12:00 UTC/)
+  onChange({ currentTarget: { value: '0' } })
+  assert.match(displayedTimestamp(), /Fri 20 Nov · 12:00 UTC/)
 })
 
 test('selected offset chooses weather and risk for the map', () => {
