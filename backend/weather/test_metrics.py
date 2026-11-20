@@ -72,6 +72,15 @@ def test_no_travel_miles_and_flag():
     assert metrics['status'] == 'no_travel'
 
 
+def test_known_no_travel_checkpoint_still_excludes_partially_unknown_route():
+    metrics = compute_route_metrics(
+        [checkpoint(0, 'no_travel'), checkpoint(50, 'unknown')], 50.0, 3600.0)
+    assert metrics['has_no_travel'] is True
+    assert metrics['no_travel_miles'] == 0.0
+    assert metrics['unknown_miles'] == 50.0
+    assert metrics['status'] == 'no_travel'
+
+
 def test_average_risk_is_distance_weighted():
     # 50 mi low (score 1) + 50 mi severe (score 4) -> avg 2.5
     checkpoints = [
@@ -91,9 +100,10 @@ def test_unknown_weather_excluded_not_treated_as_low():
         checkpoint(100, 'unknown'),
     ]
     metrics = compute_route_metrics(checkpoints, 100.0, 3600.0)
-    # Segment 0-50: worse(low, unknown) = low -> known. Segment 50-100: unknown.
-    assert metrics['weather_coverage'] == 0.5
-    assert metrics['average_risk_score'] == 1.0  # only the known low segment
+    # Neither segment is fully assessed because each has an unknown endpoint.
+    assert metrics['weather_coverage'] == 0.0
+    assert metrics['unknown_miles'] == 100.0
+    assert metrics['average_risk_score'] is None
     assert metrics['status'] == 'incomplete'
 
 
@@ -102,6 +112,7 @@ def test_fully_unknown_route_has_no_average_and_zero_coverage():
     metrics = compute_route_metrics(checkpoints, 100.0, 3600.0)
     assert metrics['weather_coverage'] == 0.0
     assert metrics['average_risk_score'] is None
+    assert metrics['unknown_miles'] == 100.0
     assert metrics['status'] == 'incomplete'
 
 
@@ -110,6 +121,30 @@ def test_clean_route_status_ok():
     metrics = compute_route_metrics(checkpoints, 100.0, 3600.0)
     assert metrics['status'] == 'ok'
     assert metrics['weather_coverage'] == 1.0
+    assert metrics['unknown_miles'] == 0.0
+
+
+def test_unknown_mileage_is_not_counted_as_low_or_high_risk_mileage():
+    checkpoints = [checkpoint(0, 'low'), checkpoint(25, 'high'), checkpoint(50, 'unknown')]
+    metrics = compute_route_metrics(checkpoints, 50.0, 3600.0)
+    assert metrics['high_miles'] == 25.0
+    assert metrics['unknown_miles'] == 25.0
+    assert metrics['weather_coverage'] == 0.5
+
+
+def test_partial_segment_metrics_produce_provisional_recommendation():
+    route = make_route('partial', [
+        checkpoint(0, 'low'),
+        checkpoint(50, 'low'),
+        checkpoint(100, 'unknown'),
+    ])
+    route['metrics'] = compute_route_metrics(route['checkpoints'], 100.0, 3600.0)
+    recommendation = build_recommendation(rank_routes([route]))
+    assert route['metrics']['weather_coverage'] == 0.5
+    assert route['metrics']['unknown_miles'] == 50.0
+    assert recommendation['safe'] is False
+    assert recommendation['status'] == 'provisional'
+    assert recommendation['route_id'] == 'partial'
 
 
 # ---------- Ranking ----------
@@ -161,6 +196,20 @@ def test_ranking_travel_time_fourth_priority():
     ]
     ranked = rank_routes(routes)
     assert ranked[0]['id'] == 'b'
+
+
+def test_four_ranking_priorities_are_preserved_between_partial_routes():
+    routes = [
+        _route_with_metrics('a', severe=10, high=0, avg=1.0, duration=100),
+        _route_with_metrics('b', severe=5, high=20, avg=4.0, duration=900),
+    ]
+    for route in routes:
+        route['metrics'].update({
+            'weather_coverage': 0.5,
+            'unknown_miles': 50.0,
+            'status': 'incomplete',
+        })
+    assert rank_routes(routes)[0]['id'] == 'b'
 
 
 def test_ranking_no_travel_routes_sort_last():
@@ -223,6 +272,7 @@ def test_recommendation_all_no_travel_is_unsafe():
     routes = rank_routes([unsafe1, unsafe2])
     rec = build_recommendation(routes)
     assert rec['safe'] is False
+    assert rec['status'] == 'unavailable'
     assert rec['route_id'] is None
     assert 'no evaluated route is safe' in rec['reason'].lower()
 
@@ -238,6 +288,7 @@ def test_recommendation_zero_weather_coverage_prevented():
     routes = rank_routes([r1])
     rec = build_recommendation(routes)
     assert rec['safe'] is False
+    assert rec['status'] == 'unavailable'
     assert rec['route_id'] is None
     assert 'weather coverage is unavailable' in rec['reason'].lower()
 
@@ -262,4 +313,43 @@ def test_recommendation_favors_route_with_usable_coverage_over_zero_coverage():
     rec = build_recommendation(routes)
     assert rec['safe'] is True
     assert rec['route_id'] == 'r2'
+
+
+def test_incomplete_route_is_provisional_not_safe():
+    route = _route_with_metrics('partial', severe=0, high=0, avg=1.0, duration=100)
+    route['metrics'].update({
+        'weather_coverage': 0.75,
+        'unknown_miles': 25.0,
+        'status': 'incomplete',
+    })
+    rec = build_recommendation(rank_routes([route]))
+    assert rec['safe'] is False
+    assert rec['status'] == 'provisional'
+    assert rec['route_id'] == 'partial'
+    assert '25.00 mi unassessed' in rec['reason']
+    assert 'cannot be confirmed' in rec['reason']
+
+
+def test_complete_route_is_preferred_to_better_ranked_partial_route():
+    partial = _route_with_metrics('partial', severe=0, high=0, avg=1.0, duration=100)
+    partial['metrics'].update({'weather_coverage': 0.75, 'unknown_miles': 25.0, 'status': 'incomplete'})
+    complete = _route_with_metrics('complete', severe=1, high=1, avg=2.0, duration=200)
+    rec = build_recommendation(rank_routes([partial, complete]))
+    assert rec['safe'] is True
+    assert rec['status'] == 'safe'
+    assert rec['route_id'] == 'complete'
+
+
+def test_incomplete_no_travel_route_is_not_a_provisional_candidate():
+    partial_unsafe = _route_with_metrics('unsafe', severe=0, high=0, avg=1.0, duration=100)
+    partial_unsafe['metrics'].update({
+        'weather_coverage': 0.75,
+        'unknown_miles': 25.0,
+        'has_no_travel': True,
+        'status': 'no_travel',
+    })
+    rec = build_recommendation(rank_routes([partial_unsafe]))
+    assert rec['safe'] is False
+    assert rec['status'] == 'unavailable'
+    assert rec['route_id'] is None
 

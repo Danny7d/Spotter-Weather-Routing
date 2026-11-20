@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { geocode } from '../api/client'
 import type { GeocodeResult } from '../types'
-import { isFutureDeparture, toNaiveLocalDateTime, type Meridiem } from './departureDateTime'
+import { toNaiveLocalDateTime, type Meridiem } from './departureDateTime'
 
 interface PlaceFieldProps {
   label: string
@@ -119,9 +119,10 @@ export interface TripFormValues {
 interface TripFormProps {
   onSubmit: (values: TripFormValues) => void
   loading: boolean
+  serverError: string | null
 }
 
-export function TripForm({ onSubmit, loading }: TripFormProps) {
+export function TripForm({ onSubmit, loading, serverError }: TripFormProps) {
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [departureDate, setDepartureDate] = useState('')
@@ -151,10 +152,6 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
     const load = Number(loadWeight)
     if (!Number.isFinite(load) || load < 0 || load > 200000) {
       setError('Load weight must be between 0 and 200,000 lb.')
-      return
-    }
-    if (!isFutureDeparture(departureLocal)) {
-      setError('Departure time must be in the future.')
       return
     }
     setError(null)
@@ -283,10 +280,10 @@ export function TripForm({ onSubmit, loading }: TripFormProps) {
       </div>
 
       {/* Validation error — styled prominently with an icon */}
-      {error && (
+      {(error || serverError) && (
         <div role="alert" className="flex items-start gap-2 rounded-[9px] border border-red-200 bg-red-50 p-2.5 text-sm text-red-800">
           <span className="mt-0.5 shrink-0">⚠</span>
-          <span>{error}</span>
+          <span>{error ?? serverError}</span>
         </div>
       )}
 

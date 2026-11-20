@@ -45,14 +45,23 @@ def compute_route_metrics(checkpoints, route_distance_miles, duration_seconds):
     severe_miles = 0.0
     high_miles = 0.0
     no_travel_miles = 0.0
+    unknown_miles = 0.0
     weighted_score_sum = 0.0
     known_miles = 0.0
-    has_no_travel = False
+    # A known No Travel checkpoint makes the route ineligible even when the
+    # adjacent segment cannot be fully assessed because its other endpoint is unknown.
+    has_no_travel = any(_checkpoint_level(checkpoint) == RISK_NO_TRAVEL for checkpoint in checkpoints)
 
     for previous, current in zip(checkpoints, checkpoints[1:]):
         segment_miles = max(0.0, current['cumulative_distance_miles']
                             - previous['cumulative_distance_miles'])
-        level = worse_risk(_checkpoint_level(previous), _checkpoint_level(current))
+        previous_level = _checkpoint_level(previous)
+        current_level = _checkpoint_level(current)
+        if previous_level == RISK_UNKNOWN or current_level == RISK_UNKNOWN:
+            unknown_miles += segment_miles
+            continue
+
+        level = worse_risk(previous_level, current_level)
 
         if level == RISK_SEVERE:
             severe_miles += segment_miles
@@ -70,6 +79,8 @@ def compute_route_metrics(checkpoints, route_distance_miles, duration_seconds):
         max(0.0, cur['cumulative_distance_miles'] - prev['cumulative_distance_miles'])
         for prev, cur in zip(checkpoints, checkpoints[1:])
     ) or route_distance_miles
+    if len(checkpoints) < 2 and route_distance_miles > 0:
+        unknown_miles = route_distance_miles
 
     average_risk_score = (weighted_score_sum / known_miles) if known_miles > 0 else None
     weather_coverage = (known_miles / total_segment_miles) if total_segment_miles > 0 else 0.0
@@ -85,6 +96,7 @@ def compute_route_metrics(checkpoints, route_distance_miles, duration_seconds):
         'severe_miles': round(severe_miles, 2),
         'high_miles': round(high_miles, 2),
         'no_travel_miles': round(no_travel_miles, 2),
+        'unknown_miles': round(unknown_miles, 2),
         'average_risk_score': round(average_risk_score, 3) if average_risk_score is not None else None,
         'weather_coverage': round(weather_coverage, 4),
         'has_no_travel': has_no_travel,
@@ -94,9 +106,15 @@ def compute_route_metrics(checkpoints, route_distance_miles, duration_seconds):
 
 def rank_key(route):
     metrics = route['metrics']
+    coverage = metrics.get('weather_coverage') or 0.0
+    fully_assessed = (
+        coverage >= 1.0
+        and metrics.get('status', 'ok') != 'incomplete'
+        and metrics.get('unknown_miles', 0.0) <= 0.0
+    )
     return (
         1 if metrics['has_no_travel'] else 0,
-        1 if (metrics.get('weather_coverage') or 0.0) <= 0.0 else 0,
+        0 if fully_assessed else 1 if coverage > 0.0 else 2,
         metrics['severe_miles'],
         metrics['high_miles'],
         metrics['average_risk_score'] if metrics['average_risk_score'] is not None else float('inf'),
@@ -117,34 +135,61 @@ def rank_routes(routes):
 def build_recommendation(routes):
     """Pick the recommended route and explain why.
 
-    Only routes without No Travel segments and with usable weather coverage
-    (weather_coverage > 0) are eligible. Returns a dict with `safe` (bool),
-    `route_id`, and a human-readable `reason`.
+    A safe recommendation requires complete weather coverage and no No Travel
+    segments. If only partially assessed routes remain, return the best one as
+    provisional (`safe=False`, `status='provisional'`) so the UI can display it
+    without presenting it as verified safe.
     """
     if not routes:
         return {
             'safe': False,
+            'status': 'unavailable',
             'route_id': None,
             'reason': 'No evaluated routes available.',
         }
 
     safe_routes = [
         r for r in routes
-        if not r['metrics']['has_no_travel'] and (r['metrics'].get('weather_coverage') or 0.0) > 0.0
+        if not r['metrics']['has_no_travel']
+        and (r['metrics'].get('weather_coverage') or 0.0) >= 1.0
+        and r['metrics'].get('status', 'ok') == 'ok'
+        and r['metrics'].get('unknown_miles', 0.0) <= 0.0
     ]
-    if not safe_routes:
-        if all(r['metrics']['has_no_travel'] for r in routes):
+    if safe_routes:
+        best = safe_routes[0]
+        recommendation_status = 'safe'
+    else:
+        provisional_routes = [
+            r for r in routes
+            if not r['metrics']['has_no_travel']
+            and (r['metrics'].get('weather_coverage') or 0.0) > 0.0
+            and (
+                (r['metrics'].get('weather_coverage') or 0.0) < 1.0
+                or r['metrics'].get('status') == 'incomplete'
+                or r['metrics'].get('unknown_miles', 0.0) > 0.0
+            )
+        ]
+        if provisional_routes:
+            best = provisional_routes[0]
+            metrics = best['metrics']
+            coverage = (metrics.get('weather_coverage') or 0.0) * 100
+            unknown_miles = metrics.get('unknown_miles', 0.0)
             return {
                 'safe': False,
-                'route_id': None,
-                'reason': 'No evaluated route is safe: every route contains No Travel weather conditions.',
+                'status': 'provisional',
+                'route_id': best['id'],
+                'reason': (
+                    f"Provisional route {best['id']} selected with {coverage:.1f}% "
+                    f"weather coverage and {unknown_miles:.2f} mi unassessed. "
+                    'Weather coverage is incomplete, so route safety cannot be confirmed.'
+                ),
             }
-        return {
-            'safe': False,
-            'route_id': None,
-            'reason': 'No route can be recommended: weather coverage is unavailable for evaluated routes.',
-        }
-    best = safe_routes[0]  # routes are already ranked
+        if all(r['metrics']['has_no_travel'] for r in routes):
+            reason = 'No evaluated route is safe: every route contains No Travel weather conditions.'
+        else:
+            reason = 'No route can be recommended: weather coverage is unavailable for evaluated routes.'
+        return {'safe': False, 'status': 'unavailable', 'route_id': None, 'reason': reason}
+
     metrics = best['metrics']
     reasons = []
     if metrics['severe_miles'] == 0 and metrics['high_miles'] == 0:
@@ -156,6 +201,7 @@ def build_recommendation(routes):
     reasons.append('shortest travel time among equally safe options' if len(safe_routes) > 1 else 'only safe route evaluated')
     return {
         'safe': True,
+        'status': recommendation_status,
         'route_id': best['id'],
         'reason': f"Route {best['id']} recommended: " + '; '.join(reasons) + '.',
     }

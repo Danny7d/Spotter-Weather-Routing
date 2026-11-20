@@ -149,18 +149,10 @@ export default function App() {
               </div>
               <p className="mt-1 text-[13px] text-[var(--muted)]">Compare routes against forecast risk.</p>
             </div>
-            <TripForm onSubmit={handlePlanSubmit} loading={loading} />
+            <TripForm onSubmit={handlePlanSubmit} loading={loading} serverError={error} />
           </section>
 
           {loading && <RouteSkeleton />}
-
-          {/* Top-level API error (not a route error) */}
-          {error && (
-            <div role="alert" className="flex items-start gap-2 border-l-2 border-red-600 bg-[#fff8f7] px-3 py-2.5 text-sm text-red-800">
-              <span className="mt-0.5 shrink-0">⚠</span>
-              <span>{error}</span>
-            </div>
-          )}
 
           {plan && (
             <RoutePanel

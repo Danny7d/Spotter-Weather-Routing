@@ -3,7 +3,7 @@ import mapboxgl from 'mapbox-gl'
 import type { CorridorPointResult, TripPlan } from '../types'
 import { RISK_COLORS, ROUTE_COLORS } from '../risk'
 import { worseRisk } from '../riskUtils'
-import { checkpointForecast, selectedForecastAt } from '../forecastSelection.mjs'
+import { checkpointMapForecast, selectedForecastAt } from '../forecastSelection.mjs'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined
 
@@ -16,12 +16,11 @@ interface RouteMapProps {
   corridorLoading: boolean
 }
 
-function checkpointFeatures(plan: TripPlan, corridorPoints: CorridorPointResult[] | null, hour: number) {
+function checkpointFeatures(plan: TripPlan, selectedRouteId: string | null, corridorPoints: CorridorPointResult[] | null, hour: number) {
   const features: GeoJSON.Feature[] = []
   plan.routes.forEach((route, routeIndex) => {
     route.checkpoints.forEach((cp) => {
-      const selectedForecast = checkpointForecast(cp, corridorPoints, hour)
-      const forecastKnown = Boolean(selectedForecast)
+      const forecast = checkpointMapForecast(route.id, selectedRouteId, cp, corridorPoints, hour)
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [cp.longitude, cp.latitude] },
@@ -29,14 +28,14 @@ function checkpointFeatures(plan: TripPlan, corridorPoints: CorridorPointResult[
           route_id: route.id,
           route_index: routeIndex,
           checkpoint_index: cp.index,
-          risk_level: selectedForecast?.risk_level ?? 'unknown',
+          risk_level: forecast.riskLevel,
           cumulative_distance_miles: cp.cumulative_distance_miles,
           arrival_utc: cp.arrival_utc,
           is_origin: cp.is_origin,
           is_destination: cp.is_destination,
-          weather: forecastKnown ? selectedForecast : null,
-          forecast_utc: selectedForecast?.arrival_utc ?? null,
-          risk: selectedForecast ? { level: selectedForecast.risk_level } : null,
+          weather: forecast.weather,
+          forecast_utc: forecast.forecastUtc,
+          risk: forecast.riskLevel === 'unknown' ? null : { level: forecast.riskLevel },
         },
       })
     })
@@ -108,12 +107,6 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
       map.addSource('risk-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
 
       map.addLayer({
-        id: 'risk-overlay-line',
-        type: 'line',
-        source: 'risk-overlay',
-        paint: { 'line-color': ['get', 'color'], 'line-width': 7, 'line-opacity': 0.85 },
-      })
-      map.addLayer({
         id: 'route-line-casing',
         type: 'line',
         source: 'routes',
@@ -133,6 +126,14 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
           'line-width': ['case', ['==', ['get', 'selected'], 1], 7, 3],
           'line-opacity': ['case', ['==', ['get', 'selected'], 1], 1, 0.72],
         },
+      })
+      // Draw forecast risk above both the casing and base route lines, while
+      // keeping checkpoint markers above the overlay.
+      map.addLayer({
+        id: 'risk-overlay-line',
+        type: 'line',
+        source: 'risk-overlay',
+        paint: { 'line-color': ['get', 'color'], 'line-width': 7, 'line-opacity': 0.85 },
       })
       map.addLayer({
         id: 'checkpoint-circles',
@@ -293,7 +294,7 @@ export function RouteMap({ plan, selectedRouteId, onSelectRoute, corridorPoints,
   useEffect(() => {
     const map = mapRef.current
     if (!map || !plan) return
-    const cps = checkpointFeatures(plan, corridorPoints, overlayHour)
+    const cps = checkpointFeatures(plan, selectedRouteId, corridorPoints, overlayHour)
     cps.features.forEach((feature) => {
       feature.properties = { ...feature.properties, selected_route: feature.properties?.route_id === selectedRouteId ? 1 : 0 }
     })

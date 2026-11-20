@@ -98,16 +98,18 @@ interface RouteCardProps {
   route: RouteOption
   isSelected: boolean
   isRecommended: boolean
+  isProvisional: boolean
   onSelect: () => void
 }
 
-function RouteCard({ route, isSelected, isRecommended, onSelect }: RouteCardProps) {
+function RouteCard({ route, isSelected, isRecommended, isProvisional, onSelect }: RouteCardProps) {
   const metrics = route.metrics
   const totalMiles = route.distance_miles || 1
   const noTravelPct = Math.min(100, (metrics.no_travel_miles / totalMiles) * 100)
   const severePct = Math.min(100 - noTravelPct, (metrics.severe_miles / totalMiles) * 100)
   const highPct = Math.min(100 - noTravelPct - severePct, (metrics.high_miles / totalMiles) * 100)
-  const otherPct = 100 - noTravelPct - severePct - highPct
+  const unknownPct = Math.min(100 - noTravelPct - severePct - highPct, (metrics.unknown_miles / totalMiles) * 100)
+  const otherPct = 100 - noTravelPct - severePct - highPct - unknownPct
   const hasRiskMiles = metrics.no_travel_miles > 0 || metrics.severe_miles > 0 || metrics.high_miles > 0
 
   return (
@@ -126,6 +128,11 @@ function RouteCard({ route, isSelected, isRecommended, onSelect }: RouteCardProp
         {isRecommended && (
           <span className="rounded-[3px] bg-[var(--brand)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
             Recommended
+          </span>
+        )}
+        {isProvisional && (
+          <span className="rounded-[3px] bg-[#ad751c] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
+            Provisional
           </span>
         )}
         {metrics.has_no_travel && (
@@ -149,20 +156,22 @@ function RouteCard({ route, isSelected, isRecommended, onSelect }: RouteCardProp
         </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 border-y border-[#e0e7e6] py-2">
+      <div className="mt-3 grid grid-cols-4 border-y border-[#e0e7e6] py-2">
         <RiskMiles label="No Travel" value={metrics.no_travel_miles} color="#7f1d1d" />
         <RiskMiles label="Severe" value={metrics.severe_miles} color="#b83333" />
         <RiskMiles label="High" value={metrics.high_miles} color="#a95514" />
+        <RiskMiles label="Unknown" value={metrics.unknown_miles} color="#718096" />
       </div>
 
       <div
         className="mt-2 flex h-[4px] overflow-hidden rounded-sm bg-[#dbe1e2]"
         role="img"
-        aria-label={`Route miles: ${metrics.no_travel_miles.toFixed(0)} no travel, ${metrics.severe_miles.toFixed(0)} severe, ${metrics.high_miles.toFixed(0)} high risk, remaining miles include lower or unknown risk`}
+        aria-label={`Route miles: ${metrics.no_travel_miles.toFixed(0)} no travel, ${metrics.severe_miles.toFixed(0)} severe, ${metrics.high_miles.toFixed(0)} high risk, ${metrics.unknown_miles.toFixed(0)} unknown, remaining miles are assessed lower risk`}
       >
         {noTravelPct > 0 && <div className="h-full bg-[#7f1d1d]" style={{ width: `${noTravelPct}%` }} />}
         {severePct > 0 && <div className="h-full bg-[#ef4444]" style={{ width: `${severePct}%` }} />}
         {highPct > 0 && <div className="h-full bg-[#f97316]" style={{ width: `${highPct}%` }} />}
+        {unknownPct > 0 && <div className="h-full bg-[#9ca3af]" style={{ width: `${unknownPct}%` }} />}
         {otherPct > 0 && <div className="h-full bg-[#cbd5d8]" style={{ width: `${otherPct}%` }} />}
       </div>
       <div className="mt-1.5 flex justify-between text-[10px] text-[var(--subtle)]">
@@ -182,6 +191,7 @@ interface RoutePanelProps {
 export function RoutePanel({ plan, selectedRouteId, onSelectRoute }: RoutePanelProps) {
   const selectedRoute = plan.routes.find((r) => r.id === selectedRouteId) ?? plan.routes[0]
   const recommendedId = plan.recommendation.route_id
+  const recommendationStatus = plan.recommendation.status
   const [checkpointsExpanded, setCheckpointsExpanded] = useState(false)
   const allCheckpoints = selectedRoute?.checkpoints ?? []
   const collapseThreshold = 8
@@ -197,10 +207,17 @@ export function RoutePanel({ plan, selectedRouteId, onSelectRoute }: RoutePanelP
 
   return (
     <div className="space-y-4">
-      {plan.recommendation.safe ? (
+      {plan.recommendation.status === 'safe' && plan.recommendation.safe ? (
         <div className="border-l-2 border-[var(--brand)] pl-3">
           <p className="text-[11px] font-semibold text-[var(--brand)]">
             Recommended route{recommendedId ? ` · ${recommendedId.replace('route-', 'Route ')}` : ''}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">{plan.recommendation.reason}</p>
+        </div>
+      ) : plan.recommendation.status === 'provisional' && recommendedId ? (
+        <div className="border-l-2 border-[#ad751c] pl-3">
+          <p className="text-[11px] font-semibold text-[#77501c]">
+            Provisional route · {recommendedId.replace('route-', 'Route ')} · incomplete weather
           </p>
           <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">{plan.recommendation.reason}</p>
         </div>
@@ -228,7 +245,8 @@ export function RoutePanel({ plan, selectedRouteId, onSelectRoute }: RoutePanelP
             key={route.id}
             route={route}
             isSelected={route.id === selectedRoute?.id}
-            isRecommended={route.id === recommendedId}
+            isRecommended={route.id === recommendedId && recommendationStatus === 'safe'}
+            isProvisional={route.id === recommendedId && recommendationStatus === 'provisional'}
             onSelect={() => onSelectRoute(route.id)}
           />
         ))}

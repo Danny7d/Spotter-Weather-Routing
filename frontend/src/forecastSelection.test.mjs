@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { checkpointForecast, forecastHourFromInput, selectedForecastAt, selectedForecastLabel, selectedForecastTime } from './forecastSelection.mjs'
+import { readFile } from 'node:fs/promises'
+import { checkpointForecast, checkpointMapForecast, forecastHourFromInput, selectedForecastAt, selectedForecastLabel, selectedForecastTime } from './forecastSelection.mjs'
 
 const departure = '2026-11-20T12:00:00Z'
 const point = {
@@ -47,6 +48,38 @@ test('checkpoint forecast uses its matching coordinate and selected hour', () =>
   const checkpoint = { latitude: 32.00001, longitude: -97, }
   assert.equal(checkpointForecast(checkpoint, [point], 24).risk_level, 'high')
   assert.equal(checkpointForecast(checkpoint, [point], 48).risk_level, 'severe')
+})
+
+test('alternative checkpoint markers retain their plan weather and risk', () => {
+  const checkpoint = {
+    latitude: 40,
+    longitude: -100,
+    weather: { wind_mph: 30, forecast_hour_utc: '2026-11-20T13:00:00Z' },
+    risk: { level: 'moderate' },
+  }
+  assert.deepEqual(checkpointMapForecast('route-2', 'route-1', checkpoint, [point], 24), {
+    riskLevel: 'moderate',
+    weather: checkpoint.weather,
+    forecastUtc: checkpoint.weather.forecast_hour_utc,
+  })
+})
+
+test('selected checkpoint markers use the selected hour and keep unknown when unavailable', () => {
+  const checkpoint = { latitude: 32, longitude: -97, weather: { wind_mph: 15 }, risk: { level: 'low' } }
+  assert.equal(checkpointMapForecast('route-1', 'route-1', checkpoint, [point], 24).riskLevel, 'high')
+  assert.equal(checkpointMapForecast('route-1', 'route-1', checkpoint, [], 24).riskLevel, 'unknown')
+})
+
+test('Mapbox risk line is layered above route lines and below checkpoint markers', async () => {
+  const source = await readFile(new URL('./components/RouteMap.tsx', import.meta.url), 'utf8')
+  const layerOrder = [...source.matchAll(/id: '(route-line-casing|route-lines|risk-overlay-line|checkpoint-circles)'/g)]
+    .map((match) => match[1])
+  assert.deepEqual(layerOrder, [
+    'route-line-casing',
+    'route-lines',
+    'risk-overlay-line',
+    'checkpoint-circles',
+  ])
 })
 
 test('missing samples stay unavailable instead of reusing static checkpoint risk', () => {

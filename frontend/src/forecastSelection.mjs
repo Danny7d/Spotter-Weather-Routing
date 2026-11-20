@@ -23,3 +23,20 @@ export function checkpointForecast(checkpoint, points, offsetHours) {
   const sample = selectedForecastAt(point, offsetHours)
   return sample && sample.risk_level !== 'unknown' ? sample : null
 }
+
+export function checkpointMapForecast(routeId, selectedRouteId, checkpoint, points, offsetHours) {
+  if (routeId !== selectedRouteId) {
+    return {
+      riskLevel: checkpoint.risk?.level ?? 'unknown',
+      weather: checkpoint.weather ?? null,
+      forecastUtc: checkpoint.weather?.forecast_hour_utc ?? null,
+    }
+  }
+
+  const sample = checkpointForecast(checkpoint, points, offsetHours)
+  return {
+    riskLevel: sample?.risk_level ?? 'unknown',
+    weather: sample,
+    forecastUtc: sample?.arrival_utc ?? null,
+  }
+}

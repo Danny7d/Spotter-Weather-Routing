@@ -105,6 +105,7 @@ the **worse** of its two endpoint risk levels and weighted by segment
 distance:
 
 - `severe_miles` / `high_miles` / `no_travel_miles`: summed segment miles per category
+- `unknown_miles`: segment miles without known risk at both endpoints
 - `average_risk_score`: distance-weighted mean of low=1 … no_travel=5 over
   segments with known weather
 - `weather_coverage`: fraction of route miles with known weather; unknown
@@ -113,16 +114,23 @@ distance:
 
 ### Ranking (lexicographic)
 
-1. Routes containing any No Travel segment always sort last and are never
-   recommended.
-2. Fewest Severe miles.
-3. Fewest High miles.
-4. Lowest average risk score.
-5. Shortest travel time.
-6. Distance, then route id (deterministic tie-breakers).
+Routes containing a known No Travel checkpoint are excluded from safe
+recommendations. Routes with complete coverage are considered before partial
+or zero coverage routes. Among comparable routes, the ranking is:
 
-If every route contains No Travel conditions the API returns
-`recommendation.safe = false` with an explanatory message.
+1. Fewest Severe miles.
+2. Fewest High miles.
+3. Lowest average risk score.
+4. Shortest travel time.
+5. Distance, then route id (deterministic tie-breakers).
+
+`recommendation.safe` is true only when the selected route has complete
+weather coverage and no No Travel condition. If only partially assessed
+routes are available, the best candidate is returned with `safe: false`,
+`status: "provisional"`, and its `route_id`; its reason reports unassessed
+mileage. With no usable weather coverage, the API returns
+`status: "unavailable"` and no `route_id`. A No Travel route is never returned
+as a safe or provisional candidate.
 
 ## Weather-risk overlay & forecast slider
 
@@ -141,7 +149,7 @@ cd backend
 .venv/bin/pytest
 ```
 
-The backend suite currently passes **102 tests**. It covers risk thresholds,
+The backend suite currently passes **110 tests**. It covers risk thresholds,
 load rules, unit conversions, checkpoint generation and ETAs, route metrics
 and ranking, missing weather, and API validation and error paths.
 
@@ -152,7 +160,7 @@ npm test
 npm run build
 ```
 
-The frontend suite currently passes **10 tests** across two test files. The
+The frontend suite currently passes **13 tests** across two test files. The
 production build runs TypeScript checking and Vite bundling.
 
 ## Deployment

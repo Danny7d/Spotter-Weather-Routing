@@ -15,16 +15,15 @@ export function toNaiveLocalDateTime(
   }
 
   const [year, month, day] = date.split('-').map(Number)
-  const calendarDate = new Date(year, month - 1, day)
-  if (calendarDate.getFullYear() !== year || calendarDate.getMonth() !== month - 1 || calendarDate.getDate() !== day) {
+  // Validate the calendar fields without interpreting them in the browser's
+  // timezone. The backend validates future time and DST in the origin zone.
+  const calendarDate = new Date(0)
+  calendarDate.setUTCHours(0, 0, 0, 0)
+  calendarDate.setUTCFullYear(year, month - 1, day)
+  if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() !== month - 1 || calendarDate.getUTCDate() !== day) {
     return null
   }
 
   const hour24 = (hourNumber % 12) + (meridiem === 'PM' ? 12 : 0)
   return `${date}T${String(hour24).padStart(2, '0')}:${String(minuteNumber).padStart(2, '0')}`
-}
-
-export function isFutureDeparture(departureLocal: string, now = new Date()): boolean {
-  const departure = new Date(departureLocal)
-  return !Number.isNaN(departure.getTime()) && departure.getTime() > now.getTime()
 }

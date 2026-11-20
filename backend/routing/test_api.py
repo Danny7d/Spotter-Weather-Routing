@@ -33,6 +33,21 @@ def test_plan_rejects_missing_fields(client):
     assert response.status_code == 400
 
 
+def test_plan_response_exposes_provisional_recommendation_status(client):
+    from unittest.mock import patch
+
+    provisional = {
+        'safe': False,
+        'status': 'provisional',
+        'route_id': 'route-1',
+        'reason': 'Weather coverage is incomplete, so route safety cannot be confirmed.',
+    }
+    with patch('routing.views.build_trip_plan', return_value={'recommendation': provisional}):
+        response = client.post('/api/plan/', VALID_PAYLOAD, format='json')
+    assert response.status_code == 200
+    assert response.data['recommendation'] == provisional
+
+
 def test_plan_rejects_negative_load(client):
     payload = {**VALID_PAYLOAD, 'load_weight_lbs': -5}
     response = client.post('/api/plan/', payload, format='json')

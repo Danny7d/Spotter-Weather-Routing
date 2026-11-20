@@ -40,6 +40,7 @@ export interface RouteMetrics {
   severe_miles: number
   high_miles: number
   no_travel_miles: number
+  unknown_miles: number
   average_risk_score: number | null
   weather_coverage: number
   has_no_travel: boolean
@@ -66,6 +67,7 @@ export interface PlaceInfo {
 
 export interface Recommendation {
   safe: boolean
+  status: 'safe' | 'provisional' | 'unavailable'
   route_id: string | null
   reason: string
 }
