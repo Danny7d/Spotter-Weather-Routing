@@ -13,6 +13,19 @@ function toUtcLabel(isoUtc: string): string {
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)} UTC`
 }
 
+function unknownMilesForRoute(route: RouteOption): number {
+  if (typeof route.metrics.unknown_miles === 'number') return route.metrics.unknown_miles
+  if (route.checkpoints.length < 2) return route.distance_miles
+
+  return route.checkpoints.slice(1).reduce((unknownMiles, checkpoint, index) => {
+    const previous = route.checkpoints[index]
+    if (previous.risk?.level === 'unknown' || checkpoint.risk?.level === 'unknown') {
+      return unknownMiles + Math.max(0, checkpoint.cumulative_distance_miles - previous.cumulative_distance_miles)
+    }
+    return unknownMiles
+  }, 0)
+}
+
 function RiskBadge({ level }: { level: string }) {
   const textColor = level === 'no_travel'
     ? '#ffffff'
@@ -104,11 +117,12 @@ interface RouteCardProps {
 
 function RouteCard({ route, isSelected, isRecommended, isProvisional, onSelect }: RouteCardProps) {
   const metrics = route.metrics
+  const unknownMiles = unknownMilesForRoute(route)
   const totalMiles = route.distance_miles || 1
   const noTravelPct = Math.min(100, (metrics.no_travel_miles / totalMiles) * 100)
   const severePct = Math.min(100 - noTravelPct, (metrics.severe_miles / totalMiles) * 100)
   const highPct = Math.min(100 - noTravelPct - severePct, (metrics.high_miles / totalMiles) * 100)
-  const unknownPct = Math.min(100 - noTravelPct - severePct - highPct, (metrics.unknown_miles / totalMiles) * 100)
+  const unknownPct = Math.min(100 - noTravelPct - severePct - highPct, (unknownMiles / totalMiles) * 100)
   const otherPct = 100 - noTravelPct - severePct - highPct - unknownPct
   const hasRiskMiles = metrics.no_travel_miles > 0 || metrics.severe_miles > 0 || metrics.high_miles > 0
 
@@ -160,13 +174,13 @@ function RouteCard({ route, isSelected, isRecommended, isProvisional, onSelect }
         <RiskMiles label="No Travel" value={metrics.no_travel_miles} color="#7f1d1d" />
         <RiskMiles label="Severe" value={metrics.severe_miles} color="#b83333" />
         <RiskMiles label="High" value={metrics.high_miles} color="#a95514" />
-        <RiskMiles label="Unknown" value={metrics.unknown_miles} color="#718096" />
+        <RiskMiles label="Unknown" value={unknownMiles} color="#718096" />
       </div>
 
       <div
         className="mt-2 flex h-[4px] overflow-hidden rounded-sm bg-[#dbe1e2]"
         role="img"
-        aria-label={`Route miles: ${metrics.no_travel_miles.toFixed(0)} no travel, ${metrics.severe_miles.toFixed(0)} severe, ${metrics.high_miles.toFixed(0)} high risk, ${metrics.unknown_miles.toFixed(0)} unknown, remaining miles are assessed lower risk`}
+        aria-label={`Route miles: ${metrics.no_travel_miles.toFixed(0)} no travel, ${metrics.severe_miles.toFixed(0)} severe, ${metrics.high_miles.toFixed(0)} high risk, ${unknownMiles.toFixed(0)} unknown, remaining miles are assessed lower risk`}
       >
         {noTravelPct > 0 && <div className="h-full bg-[#7f1d1d]" style={{ width: `${noTravelPct}%` }} />}
         {severePct > 0 && <div className="h-full bg-[#ef4444]" style={{ width: `${severePct}%` }} />}
@@ -191,7 +205,18 @@ interface RoutePanelProps {
 export function RoutePanel({ plan, selectedRouteId, onSelectRoute }: RoutePanelProps) {
   const selectedRoute = plan.routes.find((r) => r.id === selectedRouteId) ?? plan.routes[0]
   const recommendedId = plan.recommendation.route_id
-  const recommendationStatus = plan.recommendation.status
+  const recommendationRoute = plan.routes.find((route) => route.id === recommendedId)
+  const recommendationCoverage = recommendationRoute?.metrics.weather_coverage ?? 0
+  const recommendationHasUnknownMiles = recommendationRoute
+    ? unknownMilesForRoute(recommendationRoute) > 0
+    : false
+  const recommendationIsProvisional = Boolean(
+    recommendationRoute && !recommendationRoute.metrics.has_no_travel &&
+    recommendationCoverage > 0 && (recommendationCoverage < 1 || recommendationHasUnknownMiles),
+  )
+  const recommendationStatus = recommendationIsProvisional
+    ? 'provisional'
+    : plan.recommendation.status ?? (plan.recommendation.safe ? 'safe' : 'unavailable')
   const [checkpointsExpanded, setCheckpointsExpanded] = useState(false)
   const allCheckpoints = selectedRoute?.checkpoints ?? []
   const collapseThreshold = 8
